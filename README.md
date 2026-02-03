@@ -1,4 +1,4 @@
-# ESP32 SMS Server – Laravel API (SIM900A Gateway)
+# ESP32 SMS Gateway – Laravel API (SIM900A )
 
 ## Overview
 
