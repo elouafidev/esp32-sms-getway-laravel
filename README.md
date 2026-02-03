@@ -1,59 +1,459 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# ESP32 SMS Server – Laravel API (SIM900A Gateway)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+## Overview
 
-## About Laravel
+This project provides a **multi-device SMS Gateway** based on **ESP32 + SIM900A**, controlled by a **Laravel backend secured with Laravel Sanctum**.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+Each ESP32 device acts as an independent GSM gateway:
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+* polls the backend for SMS to send
+* sends SMS via the GSM module
+* reports send results (sent / failed)
+* forwards received SMS to the server
+* sends a detailed heartbeat (GSM, Wi-Fi, uptime, counters)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+The Laravel backend includes:
 
-## Learning Laravel
+* a REST API for ESP32 devices
+* multi-device management
+* Inbox / Outbox storage
+* heartbeat history
+* an admin dashboard for monitoring and control
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+---
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Implemented Features
 
-## Laravel Sponsors
+### ESP32
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+* Poll SMS Outbox
+* Forward received SMS (Inbox)
+* Send result reporting (sent / failed with error)
+* Heartbeat (GSM, Wi-Fi, uptime, statistics)
+* Optional Serial debugging
+* LCD I2C live status display
 
-### Premium Partners
+### Laravel Backend
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+* Sanctum authentication (auth:sanctum)
+* Multi-device support (multiple ESP32 devices on the same API)
+* Inbox and Outbox management
+* Heartbeat history (device_statuses)
+* Admin dashboard:
 
-## Contributing
+    * device list and details
+    * inbox and outbox
+    * heartbeat charts
+    * device activity monitoring
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## Architecture and Data Flow
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```
+ESP32 + SIM900A
+|
+|-- GET  /api/devices/{device_uid}/outbox
+|       Fetch queued SMS
+|
+|-- POST /api/devices/{device_uid}/outbox/{sms_id}/result
+|       Report send result
+|
+|-- POST /api/devices/{device_uid}/inbox
+|       Forward received SMS
+|
+|-- POST /api/devices/{device_uid}/heartbeat
+|       GSM and Wi-Fi supervision
+```
 
-## Security Vulnerabilities
+Each ESP32 device is identified by a unique `device_uid`.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
+
+## Authentication (Laravel Sanctum)
+
+All API routes under `/api/*` are protected by Sanctum.
+
+Required headers:
+
+```
+Authorization: Bearer <API_TOKEN>
+Accept: application/json
+Content-Type: application/json
+```
+
+---
+
+## Generate an API Token for a Device (Artisan Command)
+
+The project includes a custom Artisan command to generate a Sanctum token for a device.
+
+### Command
+
+```bash
+php artisan device:token esp32-001 1
+```
+
+### Parameters
+
+| Parameter | Description                              |
+| --------- | ---------------------------------------- |
+| esp32-001 | device_uid (must exist in devices table) |
+| 1         | user_id (defaults to 1 if omitted)       |
+
+### Behavior
+
+* Finds the device by device_uid
+* Generates a Sanctum token for the user
+* Token name is set to `device:{device_uid}`
+* Token is printed to the console
+
+Important notes:
+
+* The token belongs to the user, not technically bound to the device
+* Device validation is enforced through the device_uid in API routes
+* No expiration logic is implemented by default
+
+Example output:
+
+```text
+TOKEN (Bearer):
+MW0L5Vcoe8Ix5VubhsSZAfLkMhEeaUoDirnGHcsr5232dfb5
+```
+
+Use this token in the ESP32 firmware.
+
+---
+
+## API Endpoints (Based on Actual Code)
+
+### Fetch SMS Outbox
+
+GET
+
+```
+/api/devices/{device_uid}/outbox?limit=5
+```
+
+Rules:
+
+* Only SMS with status `queued`
+* FIFO order (id ASC)
+* limit clamped between 1 and 20
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": 12,
+      "to": "+33600000000",
+      "message": "Test SMS"
+    }
+  ]
+}
+```
+
+---
+
+### Report SMS Send Result
+
+POST
+
+```
+/api/devices/{device_uid}/outbox/{sms_id}/result
+```
+
+Body:
+
+```json
+{
+  "status": "sent",
+  "error": null
+}
+```
+
+Rules:
+
+* status: sent or failed
+* error stored if failed
+* sent_at automatically set when successful
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+---
+
+### Forward Received SMS (Inbox)
+
+POST
+
+```
+/api/devices/{device_uid}/inbox
+```
+
+Body:
+
+```json
+{
+  "from": "+212600000000",
+  "message": "Hello",
+  "received_at": 123456
+}
+```
+
+Notes:
+
+* received_at is optional (ESP32 timestamp)
+* server stores received_at as current time
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+---
+
+### Heartbeat / Device Supervision
+
+POST
+
+```
+/api/devices/{device_uid}/heartbeat
+```
+
+Body example:
+
+```json
+{
+  "uptime_s": 12345,
+  "wifi_rssi": -55,
+  "sent_count": 10,
+  "recv_count": 3,
+  "gsm": {
+    "rssi_raw": 20,
+    "ber": 0,
+    "dbm": -85,
+    "signal_percent": 65,
+    "operator": "Orange",
+    "sim_status": "READY",
+    "creg_stat": 1,
+    "roaming": false,
+    "iccid": "8933...",
+    "imsi": "20801..."
+  }
+}
+```
+
+Effects:
+
+* Inserts a row into device_statuses
+* Updates cached fields in devices
+* Updates last_seen_at
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+---
+
+## Admin Dashboard (Web)
+
+Accessible after login.
+
+Main routes:
+
+```
+/admin
+/admin/devices
+/admin/devices/{id}
+/admin/outbox
+/admin/inbox
+```
+
+Features:
+
+* manage multiple ESP32 devices
+* view device details and last status
+* view heartbeat history
+* manage inbox and outbox
+* per-device SMS monitoring
+
+Access is protected by an admin middleware using the `is_admin` flag.
+
+---
+
+## Database Models Summary
+
+### devices
+
+* device_uid (unique)
+* name, is_active
+* cached GSM and Wi-Fi fields
+* last_seen_at
+
+### device_statuses
+
+* heartbeat history (one row per heartbeat)
+
+### sms_outboxes
+
+* device_id, to, message
+* status (queued, sent, failed)
+* error, sent_at
+
+### sms_inboxes
+
+* device_id, from, message, received_at
+
+---
+
+## Laravel Installation
+
+```bash
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan serve
+```
+
+Create a user via `/register`, then log in to access the dashboard.
+
+Create devices via:
+
+```
+/admin/devices/create
+```
+
+Generate a token:
+
+```bash
+php artisan device:token esp32-001 1
+```
+
+---
+
+## ESP32 Installation
+
+### Available Sketches
+
+The ESP32 folder contains two sketches:
+
+#### ESP32_Code.ino (Production)
+
+* Runtime version for normal operation
+* Minimal or no Serial output
+* Recommended for long-term gateway usage
+
+#### ESP32_Code_With_debug.ino (Debug)
+
+* Same logic and API behavior
+* Detailed Serial logs for diagnostics
+* Used to debug GSM, LCD, Wi-Fi, or API issues
+
+---
+
+### ESP32 Configuration
+
+```cpp
+const char* WIFI_SSID  = "...";
+const char* WIFI_PASS  = "...";
+const char* API_BASE   = "http://<SERVER_IP_OR_DOMAIN>";
+const char* DEVICE_ID  = "esp32-001";
+const char* API_TOKEN  = "<SANCTUM_TOKEN>";
+```
+
+---
+
+### SIM900A GSM Connection
+
+* RX: GPIO16
+* TX: GPIO17
+* Baudrate: 9600
+
+SIM900A requires a stable 4.0–4.2V power supply with peaks up to 2A.
+Common ground between ESP32 and SIM900A is mandatory.
+
+---
+
+## LCD Display (I2C 16x2)
+
+### Wiring (typical ESP32)
+
+* VCC to 5V or 3.3V (depending on module)
+* GND to GND
+* SDA to GPIO21
+* SCL to GPIO22
+
+Common I2C addresses: 0x27 or 0x3F.
+
+---
+
+### LCD Display Format
+
+Line 1:
+
+```
+GSM:65% OP:Orange
+```
+
+Line 2:
+
+```
+S:10 R:3 Wi:OK
+```
+
+* GSM signal strength in percent
+* Operator name
+* SMS sent and received counters
+* Wi-Fi connection status
+
+LCD refreshes approximately every second.
+
+---
+
+### LCD Diagnostics
+
+If the LCD does not display correctly:
+
+* use ESP32_Code_With_debug.ino
+* check Serial Monitor for I2C initialization logs
+* verify power and I2C address
+
+---
+
+## Quick API Tests
+
+```bash
+curl -H "Authorization: Bearer <TOKEN>" \
+"http://localhost:8000/api/devices/esp32-001/outbox?limit=5"
+```
+
+```bash
+curl -X POST \
+-H "Authorization: Bearer <TOKEN>" \
+-H "Content-Type: application/json" \
+-d '{"from":"+33600000000","message":"test"}' \
+"http://localhost:8000/api/devices/esp32-001/inbox"
+```
+
+---
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+MIT License
+
+---
+
+## Author
+
+Mouad Elouafi
+GitHub: [https://github.com/elouafidev](https://github.com/elouafidev)
